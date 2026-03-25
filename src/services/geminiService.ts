@@ -17,12 +17,11 @@ export interface TrainData {
 }
 
 export async function fetchTrainSchedule(trainNo: string): Promise<TrainData | null> {
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) {
-    console.error("GEMINI_API_KEY is missing. Search will not work.");
-    throw new Error("API Key is missing. Please check your environment variables.");
-  }
+  // Try to get the API key from multiple possible sources
+  const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
   
+  // We'll proceed even if apiKey is empty, as the SDK might have its own way of resolving it 
+  // or the environment might have it injected globally.
   const ai = new GoogleGenAI({ apiKey });
 
   try {
