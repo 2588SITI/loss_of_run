@@ -169,6 +169,7 @@ function ManualTrainModal({ isOpen, onClose, onSave }: ManualTrainModalProps) {
   const [schedule, setSchedule] = useState<ScheduleItem[]>([
     { stationName: '', stationCode: '', arrivalTime: '00:00', departureTime: '00:00', haltTime: 0, distance: 0, day: 1 }
   ]);
+  const timetableFileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -184,6 +185,40 @@ function ManualTrainModal({ isOpen, onClose, onSave }: ManualTrainModalProps) {
     const newSchedule = [...schedule];
     newSchedule[index] = { ...newSchedule[index], [field]: value };
     setSchedule(newSchedule);
+  };
+
+  const handleTimetableCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const data = results.data as any[];
+        const newSchedule: ScheduleItem[] = data.map(row => ({
+          stationName: row['Station Name'] || row['stationName'] || '',
+          stationCode: row['Station Code'] || row['stationCode'] || '',
+          arrivalTime: row['Arrival'] || row['arrivalTime'] || '00:00',
+          departureTime: row['Departure'] || row['departureTime'] || '00:00',
+          haltTime: parseInt(row['Halt'] || row['haltTime']) || 0,
+          distance: parseInt(row['Distance'] || row['distance']) || 0,
+          day: parseInt(row['Day'] || row['day']) || 1
+        }));
+
+        if (newSchedule.length > 0) {
+          setSchedule(newSchedule);
+          // Try to guess train name/no from filename if not set
+          if (!trainNo) {
+            const match = file.name.match(/\d{5}/);
+            if (match) setTrainNo(match[0]);
+          }
+        }
+      },
+      error: (error) => {
+        alert("Error parsing CSV: " + error.message);
+      }
+    });
   };
 
   const handleSave = () => {
@@ -205,9 +240,25 @@ function ManualTrainModal({ isOpen, onClose, onSave }: ManualTrainModalProps) {
             </div>
             <h2 className="text-xl font-bold text-gray-900">Manual Timetable Input</h2>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+          <div className="flex items-center gap-2">
+            <input 
+              type="file" 
+              ref={timetableFileInputRef} 
+              className="hidden" 
+              accept=".csv" 
+              onChange={handleTimetableCSVUpload}
+            />
+            <button 
+              onClick={() => timetableFileInputRef.current?.click()}
+              className="flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 px-4 py-2 rounded-full border border-indigo-200 transition-all"
+            >
+              <Upload className="w-4 h-4" />
+              Upload CSV
+            </button>
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
         </div>
 
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
