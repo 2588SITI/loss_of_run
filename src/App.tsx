@@ -50,8 +50,13 @@ const parseRTISDate = (dateStr: string): Date | null => {
   const cleanStr = dateStr.trim();
   if (!cleanStr) return null;
 
-  // Try standard ISO
+  // Try standard ISO or common JS formats
   let d = new Date(cleanStr);
+  if (isValid(d)) return d;
+
+  // Try replacing dashes with slashes for better native support
+  const withSlashes = cleanStr.replace(/-/g, '/');
+  d = new Date(withSlashes);
   if (isValid(d)) return d;
 
   const formats = [
@@ -59,6 +64,10 @@ const parseRTISDate = (dateStr: string): Date | null => {
     'MM-dd-yyyy HH:mm:ss',
     'M-d-yyyy HH:mm',
     'MM-dd-yyyy HH:mm',
+    'M/d/yyyy HH:mm:ss',
+    'MM/dd/yyyy HH:mm:ss',
+    'M/d/yyyy HH:mm',
+    'MM/dd/yyyy HH:mm',
     'd-M-yyyy HH:mm:ss',
     'dd-MM-yyyy HH:mm:ss',
     'd/M/yyyy HH:mm:ss',
@@ -80,7 +89,33 @@ const parseRTISDate = (dateStr: string): Date | null => {
     try {
       d = parse(cleanStr, fmt, new Date());
       if (isValid(d)) return d;
+      
+      // Also try with slashes if dashes failed
+      d = parse(withSlashes, fmt, new Date());
+      if (isValid(d)) return d;
     } catch (e) {}
+  }
+
+  // Last resort: manual split for M-D-YYYY or D-M-YYYY
+  const parts = cleanStr.split(/[-/ :]/);
+  if (parts.length >= 5) {
+    const m = parseInt(parts[0]);
+    const d_val = parseInt(parts[1]);
+    const y = parseInt(parts[2]);
+    const h = parseInt(parts[3]);
+    const min = parseInt(parts[4]);
+    const s = parts[5] ? parseInt(parts[5]) : 0;
+
+    // Try M-D-YYYY
+    if (m >= 1 && m <= 12 && d_val >= 1 && d_val <= 31 && y > 2000) {
+      const testDate = new Date(y, m - 1, d_val, h, min, s);
+      if (isValid(testDate)) return testDate;
+    }
+    // Try D-M-YYYY
+    if (d_val >= 1 && d_val <= 12 && m >= 1 && m <= 31 && y > 2000) {
+      const testDate = new Date(y, d_val - 1, m, h, min, s);
+      if (isValid(testDate)) return testDate;
+    }
   }
 
   return null;
@@ -239,7 +274,8 @@ export default function App() {
         }).filter(r => r.timestamp);
 
         if (mappedData.length === 0) {
-          const errorMsg = `No valid records found. \n\nDetected Headers: ${headers.join(', ')}\n\nPlease ensure your CSV has columns for Time, Speed, and Station.`;
+          const firstRow = dataRows[0] ? dataRows[0].join(', ') : 'No data rows';
+          const errorMsg = `No valid records found. \n\nDetected Headers: ${headers.join(', ')}\n\nFirst Data Row: ${firstRow}\n\nPlease ensure your CSV has columns for Time, Speed, and Station.`;
           setUploadError(errorMsg);
           alert(errorMsg);
         } else {
