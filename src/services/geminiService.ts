@@ -16,17 +16,19 @@ export interface TrainData {
   schedule: ScheduleItem[];
 }
 
-export async function fetchTrainSchedule(trainNo: string): Promise<TrainData | null> {
+export async function fetchTrainSchedule(trainNo: string, retryCount = 0): Promise<TrainData | null> {
   // Try to get the API key from multiple possible sources
   // In AI Studio, GEMINI_API_KEY is usually available in process.env
   const apiKey = (process.env.GEMINI_API_KEY as string) || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
   
-  // We'll proceed even if apiKey is empty, as the SDK might have its own way of resolving it 
-  // or the environment might have it injected globally.
+  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+    throw new Error("Gemini API Key is missing. Please add it to your environment variables (Settings -> Secrets in AI Studio).");
+  }
+  
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-    console.log(`Searching for train ${trainNo} (v1.0.2)...`);
+    console.log(`Searching for train ${trainNo} (v1.0.3, attempt ${retryCount + 1})...`);
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Find the current, official timetable for Indian Railways train number ${trainNo}. 
@@ -97,8 +99,19 @@ export async function fetchTrainSchedule(trainNo: string): Promise<TrainData | n
       console.error("Failed to parse train data:", parseError);
       return null;
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini API Error:", error);
+    
+    // Handle "Too many requests" (429) with exponential backoff
+    const isRateLimit = error?.message?.includes("429") || error?.message?.includes("Quota exceeded") || error?.message?.includes("Too many requests");
+    
+    if (isRateLimit && retryCount < 3) {
+      const delay = Math.pow(2, retryCount) * 2000; // 2s, 4s, 8s
+      console.log(`Rate limit hit. Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return fetchTrainSchedule(trainNo, retryCount + 1);
+    }
+    
     throw error;
   }
 }

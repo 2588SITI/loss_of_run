@@ -215,8 +215,8 @@ export default function App() {
         message = error.message;
         if (message.includes("403") || message.includes("Permission denied")) {
           message = "Connection Error: Please check if the Gemini API is enabled for your project.";
-        } else if (message.includes("429") || message.includes("Quota exceeded")) {
-          message = "Too many requests. Please wait a moment and try again.";
+        } else if (message.includes("429") || message.includes("Quota exceeded") || message.includes("Too many requests")) {
+          message = "The service is currently receiving too many requests. Please wait about 30-60 seconds and try again. This is a temporary limit of the free API.";
         }
       }
       alert(message);
@@ -487,7 +487,7 @@ export default function App() {
           <div className="flex justify-center gap-4 text-[10px] text-gray-400">
             <p>Try: 12301 (Rajdhani), 12002 (Shatabdi), 12423 (Dibrugarh Rajdhani)</p>
           </div>
-          <p className="text-[8px] text-gray-300">v1.0.2</p>
+          <p className="text-[8px] text-gray-300">v1.0.3</p>
         </div>
       </header>
 
@@ -613,15 +613,24 @@ export default function App() {
           <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <Info className="w-5 h-5 text-indigo-600" />
-              <h2 className="font-bold text-lg">Help & Format</h2>
+              <h2 className="font-bold text-lg">Setup & Environment</h2>
             </div>
             <div className="space-y-4 text-sm text-gray-600">
-              <p>To use this tool, your CSV should have these columns:</p>
-              <ul className="list-disc pl-5 space-y-1 text-xs">
-                <li><strong>timestamp</strong>: Date and time (DD-MM-YYYY HH:mm:ss)</li>
-                <li><strong>speed</strong>: Current speed in km/h</li>
-                <li><strong>station</strong>: Station code (optional, for halt analysis)</li>
-              </ul>
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+                <p className="text-xs text-amber-800 font-bold mb-1">Environment Variables Required:</p>
+                <code className="text-[10px] block bg-white/50 p-1 rounded">GEMINI_API_KEY</code>
+              </div>
+              
+              <div className="space-y-2">
+                <p className="font-bold text-xs uppercase text-gray-400">In AI Studio:</p>
+                <p className="text-xs">Go to <strong>Settings</strong> &rarr; <strong>Secrets</strong> and add <code>GEMINI_API_KEY</code>.</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-bold text-xs uppercase text-gray-400">In Vercel:</p>
+                <p className="text-xs">Go to <strong>Project Settings</strong> &rarr; <strong>Environment Variables</strong>. Add <code>GEMINI_API_KEY</code> to all environments (Production, Preview, Development).</p>
+              </div>
+
               <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
                 <p className="text-xs text-indigo-700">
                   <strong>Tip:</strong> You can now search for <strong>any real train number</strong> in the header to fetch its actual timetable.
