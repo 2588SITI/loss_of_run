@@ -15,7 +15,9 @@ import {
   Info,
   ChevronRight,
   FileText,
-  AlertCircle
+  AlertCircle,
+  Plus,
+  X
 } from 'lucide-react';
 import Papa from 'papaparse';
 import { 
@@ -31,7 +33,7 @@ import {
 } from 'recharts';
 import { format, parse, differenceInMinutes, isValid } from 'date-fns';
 import { cn } from './lib/utils';
-import { fetchTrainSchedule, type TrainData } from './services/geminiService';
+import { fetchTrainSchedule, type TrainData, type ScheduleItem } from './services/geminiService';
 
 // Types
 interface RTISRecord {
@@ -155,6 +157,203 @@ const SAMPLE_TRAINS: Record<string, TrainData> = {
   }
 };
 
+interface ManualTrainModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (data: TrainData) => void;
+}
+
+function ManualTrainModal({ isOpen, onClose, onSave }: ManualTrainModalProps) {
+  const [trainNo, setTrainNo] = useState('');
+  const [trainName, setTrainName] = useState('');
+  const [schedule, setSchedule] = useState<ScheduleItem[]>([
+    { stationName: '', stationCode: '', arrivalTime: '00:00', departureTime: '00:00', haltTime: 0, distance: 0, day: 1 }
+  ]);
+
+  if (!isOpen) return null;
+
+  const addStation = () => {
+    setSchedule([...schedule, { stationName: '', stationCode: '', arrivalTime: '00:00', departureTime: '00:00', haltTime: 0, distance: 0, day: 1 }]);
+  };
+
+  const removeStation = (index: number) => {
+    setSchedule(schedule.filter((_, i) => i !== index));
+  };
+
+  const updateStation = (index: number, field: keyof ScheduleItem, value: any) => {
+    const newSchedule = [...schedule];
+    newSchedule[index] = { ...newSchedule[index], [field]: value };
+    setSchedule(newSchedule);
+  };
+
+  const handleSave = () => {
+    if (!trainNo || !trainName || schedule.length === 0) {
+      alert("Please fill in train number, name and at least one station.");
+      return;
+    }
+    onSave({ trainNo, trainName, schedule });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl max-h-[90vh] flex flex-col">
+        <div className="p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white rounded-t-2xl z-10">
+          <div className="flex items-center gap-3">
+            <div className="bg-indigo-100 p-2 rounded-lg">
+              <Plus className="w-5 h-5 text-indigo-600" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">Manual Timetable Input</h2>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto flex-1 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Train Number</label>
+              <input 
+                type="text" 
+                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="e.g. 12301"
+                value={trainNo}
+                onChange={(e) => setTrainNo(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Train Name</label>
+              <input 
+                type="text" 
+                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="e.g. Rajdhani Express"
+                value={trainName}
+                onChange={(e) => setTrainName(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-gray-700">Stations & Schedule</h3>
+              <button 
+                onClick={addStation}
+                className="flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-700"
+              >
+                <Plus className="w-4 h-4" />
+                Add Station
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="pb-3 font-semibold text-gray-500">Station Name</th>
+                    <th className="pb-3 font-semibold text-gray-500">Code</th>
+                    <th className="pb-3 font-semibold text-gray-500">Arrival</th>
+                    <th className="pb-3 font-semibold text-gray-500">Departure</th>
+                    <th className="pb-3 font-semibold text-gray-500">Halt (m)</th>
+                    <th className="pb-3 font-semibold text-gray-500">Dist (km)</th>
+                    <th className="pb-3 font-semibold text-gray-500">Day</th>
+                    <th className="pb-3 font-semibold text-gray-500"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {schedule.map((s, idx) => (
+                    <tr key={idx} className="group">
+                      <td className="py-3 pr-2">
+                        <input 
+                          type="text" 
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={s.stationName}
+                          onChange={(e) => updateStation(idx, 'stationName', e.target.value)}
+                        />
+                      </td>
+                      <td className="py-3 pr-2 w-20">
+                        <input 
+                          type="text" 
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={s.stationCode}
+                          onChange={(e) => updateStation(idx, 'stationCode', e.target.value)}
+                        />
+                      </td>
+                      <td className="py-3 pr-2 w-24">
+                        <input 
+                          type="text" 
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={s.arrivalTime}
+                          onChange={(e) => updateStation(idx, 'arrivalTime', e.target.value)}
+                        />
+                      </td>
+                      <td className="py-3 pr-2 w-24">
+                        <input 
+                          type="text" 
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={s.departureTime}
+                          onChange={(e) => updateStation(idx, 'departureTime', e.target.value)}
+                        />
+                      </td>
+                      <td className="py-3 pr-2 w-20">
+                        <input 
+                          type="number" 
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={s.haltTime}
+                          onChange={(e) => updateStation(idx, 'haltTime', parseInt(e.target.value) || 0)}
+                        />
+                      </td>
+                      <td className="py-3 pr-2 w-20">
+                        <input 
+                          type="number" 
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={s.distance}
+                          onChange={(e) => updateStation(idx, 'distance', parseInt(e.target.value) || 0)}
+                        />
+                      </td>
+                      <td className="py-3 pr-2 w-20">
+                        <input 
+                          type="number" 
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={s.day}
+                          onChange={(e) => updateStation(idx, 'day', parseInt(e.target.value) || 1)}
+                        />
+                      </td>
+                      <td className="py-3 text-right">
+                        <button 
+                          onClick={() => removeStation(idx)}
+                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 border-t border-gray-100 flex items-center justify-end gap-3 sticky bottom-0 bg-white rounded-b-2xl">
+          <button 
+            onClick={onClose}
+            className="px-6 py-2 text-sm font-semibold text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={handleSave}
+            className="bg-indigo-600 text-white px-8 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
+          >
+            Save Timetable
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [trainNo, setTrainNo] = useState('');
   const [activeTrain, setActiveTrain] = useState<TrainData | null>(null);
@@ -168,6 +367,7 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isApiKeyMissing, setIsApiKeyMissing] = useState(false);
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check for API key on mount
@@ -478,6 +678,17 @@ export default function App() {
           </button>
         </div>
       )}
+      {/* Manual Input Modal */}
+      <ManualTrainModal 
+        isOpen={isManualModalOpen}
+        onClose={() => setIsManualModalOpen(false)}
+        onSave={(data) => {
+          setActiveTrain(data);
+          setStartStation('');
+          setEndStation('');
+        }}
+      />
+
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
@@ -504,6 +715,13 @@ export default function App() {
               </div>
             )}
           </div>
+          <button 
+            onClick={() => setIsManualModalOpen(true)}
+            className="text-indigo-600 border border-indigo-600 px-4 py-2 rounded-full text-sm font-semibold hover:bg-indigo-50 transition-colors flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Manual Input
+          </button>
           <button 
             onClick={() => {
               setTrainNo('12301');
