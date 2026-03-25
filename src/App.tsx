@@ -1014,7 +1014,9 @@ export default function App() {
                 >
                   <option value="">Select Station</option>
                   {activeTrain?.schedule.map(s => (
-                    <option key={s.stationCode} value={s.stationCode}>{s.stationName} ({s.stationCode})</option>
+                    <option key={s.stationCode} value={s.stationCode}>
+                      {s.stationName}{s.stationCode ? ` (${s.stationCode})` : ''}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1034,7 +1036,9 @@ export default function App() {
                 >
                   <option value="">Select Station</option>
                   {activeTrain?.schedule.map(s => (
-                    <option key={s.stationCode} value={s.stationCode}>{s.stationName} ({s.stationCode})</option>
+                    <option key={s.stationCode} value={s.stationCode}>
+                      {s.stationName}{s.stationCode ? ` (${s.stationCode})` : ''}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1085,11 +1089,11 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-white/10 p-3 rounded-xl backdrop-blur-sm">
                     <p className="text-[10px] text-indigo-300 uppercase font-bold">Origin</p>
-                    <p className="font-semibold text-sm">{activeTrain.schedule[0].stationCode}</p>
+                    <p className="font-semibold text-sm">{activeTrain.schedule[0].stationCode || activeTrain.schedule[0].stationName}</p>
                   </div>
                   <div className="bg-white/10 p-3 rounded-xl backdrop-blur-sm">
                     <p className="text-[10px] text-indigo-300 uppercase font-bold">Destination</p>
-                    <p className="font-semibold text-sm">{activeTrain.schedule[activeTrain.schedule.length - 1].stationCode}</p>
+                    <p className="font-semibold text-sm">{activeTrain.schedule[activeTrain.schedule.length - 1].stationCode || activeTrain.schedule[activeTrain.schedule.length - 1].stationName}</p>
                   </div>
                 </div>
               </div>
