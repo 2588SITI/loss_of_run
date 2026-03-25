@@ -1,11 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const apiKey = process.env.GEMINI_API_KEY || '';
-if (!apiKey) {
-  console.warn("GEMINI_API_KEY is missing. Real-time train search will not work.");
-}
-const ai = new GoogleGenAI({ apiKey });
-
 export interface ScheduleItem {
   stationName: string;
   stationCode: string;
@@ -23,21 +17,21 @@ export interface TrainData {
 }
 
 export async function fetchTrainSchedule(trainNo: string): Promise<TrainData | null> {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey) {
+    console.error("GEMINI_API_KEY is missing. Search will not work.");
+    throw new Error("API Key is missing. Please check your environment variables.");
+  }
+  
+  const ai = new GoogleGenAI({ apiKey });
+
   try {
-    console.log(`Starting search for train ${trainNo} using gemini-3.1-pro-preview...`);
+    console.log(`Searching for train ${trainNo}...`);
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-pro-preview",
-      contents: `Search for the official, latest timetable of Indian Railways train number ${trainNo}. 
-      Extract the full schedule including:
-      - Train Name
-      - Each station's name and code
-      - Arrival and Departure times (in HH:mm format)
-      - Halt time in minutes
-      - Cumulative distance in km
-      - Day number (1, 2, etc.)
-      
-      Ensure you get the most recent data from official sources like NTES, IRCTC, or reliable travel portals.
-      If you cannot find the exact JSON, return a JSON object with the train details you found.`,
+      model: "gemini-3-flash-preview",
+      contents: `Find the current, official timetable for Indian Railways train number ${trainNo}. 
+      I need the full schedule including station names, codes, arrival/departure times, and distance.
+      Return the data in a structured format.`,
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
@@ -53,13 +47,13 @@ export async function fetchTrainSchedule(trainNo: string): Promise<TrainData | n
                 properties: {
                   stationName: { type: Type.STRING },
                   stationCode: { type: Type.STRING },
-                  arrivalTime: { type: Type.STRING, description: "HH:mm format, use 00:00 for start station" },
-                  departureTime: { type: Type.STRING, description: "HH:mm format, use 00:00 for end station" },
+                  arrivalTime: { type: Type.STRING },
+                  departureTime: { type: Type.STRING },
                   haltTime: { type: Type.NUMBER },
                   distance: { type: Type.NUMBER },
                   day: { type: Type.NUMBER }
                 },
-                required: ["stationName", "stationCode", "arrivalTime", "departureTime", "haltTime", "distance", "day"]
+                required: ["stationName", "stationCode", "arrivalTime", "departureTime"]
               }
             }
           },
@@ -69,28 +63,42 @@ export async function fetchTrainSchedule(trainNo: string): Promise<TrainData | n
     });
 
     if (!response.text) {
-      console.warn("No response text from Gemini for train:", trainNo);
+      console.warn("Empty response from Gemini for train:", trainNo);
       return null;
     }
     
-    console.log("Raw response from Gemini:", response.text);
+    console.log("Gemini Response Received");
 
     try {
-      // Clean the response text in case it has markdown code blocks
       const cleanedText = response.text.replace(/```json\n?|```/g, '').trim();
       const data = JSON.parse(cleanedText);
+      
       if (!data.schedule || data.schedule.length === 0) {
-        console.warn("Empty schedule returned for train:", trainNo);
         return null;
       }
-      return data as TrainData;
+
+      // Ensure all fields have defaults if missing from AI response
+      const processedSchedule = data.schedule.map((item: any) => ({
+        stationName: item.stationName || "Unknown",
+        stationCode: item.stationCode || "???",
+        arrivalTime: item.arrivalTime || "00:00",
+        departureTime: item.departureTime || "00:00",
+        haltTime: item.haltTime || 0,
+        distance: item.distance || 0,
+        day: item.day || 1
+      }));
+
+      return {
+        trainNo: data.trainNo || trainNo,
+        trainName: data.trainName || `Train ${trainNo}`,
+        schedule: processedSchedule
+      };
     } catch (parseError) {
-      console.error("JSON Parse Error for train schedule:", parseError, response.text);
+      console.error("Failed to parse train data:", parseError);
       return null;
     }
   } catch (error) {
-    console.error("Error fetching train schedule:", error);
-    // Rethrow to handle in UI
+    console.error("Gemini API Error:", error);
     throw error;
   }
 }
