@@ -32,29 +32,51 @@ import {
 import { format, parse, differenceInMinutes, isValid } from 'date-fns';
 import { cn } from './lib/utils';
 
-// ... existing types ...
+// Types
+interface RTISRecord {
+  timestamp: string;
+  lat: number;
+  lon: number;
+  speed: number;
+  station?: string;
+}
 
 /**
  * Robust date parser for common Indian Railways formats
  */
 const parseRTISDate = (dateStr: string): Date | null => {
-  if (!dateStr) return null;
+  if (!dateStr || typeof dateStr !== 'string') return null;
   
+  const cleanStr = dateStr.trim();
+  if (!cleanStr) return null;
+
   // Try standard ISO
-  let d = new Date(dateStr);
+  let d = new Date(cleanStr);
   if (isValid(d)) return d;
 
-  // Try DD-MM-YYYY HH:mm:ss
-  try {
-    d = parse(dateStr, 'dd-MM-yyyy HH:mm:ss', new Date());
-    if (isValid(d)) return d;
-  } catch (e) {}
+  const formats = [
+    'M-d-yyyy HH:mm:ss',
+    'MM-dd-yyyy HH:mm:ss',
+    'M-d-yyyy HH:mm',
+    'MM-dd-yyyy HH:mm',
+    'dd-MM-yyyy HH:mm:ss',
+    'dd/MM/yyyy HH:mm:ss',
+    'dd-MM-yyyy HH:mm',
+    'dd/MM/yyyy HH:mm',
+    'yyyy-MM-dd HH:mm:ss',
+    'dd-MMM-yy HH:mm:ss',
+    'dd-MMM-yyyy HH:mm:ss',
+    'dd-MMM-yy HH:mm',
+    'HH:mm:ss', // Time only
+    'HH:mm'     // Time only
+  ];
 
-  // Try DD/MM/YYYY HH:mm:ss
-  try {
-    d = parse(dateStr, 'dd/MM/yyyy HH:mm:ss', new Date());
-    if (isValid(d)) return d;
-  } catch (e) {}
+  for (const fmt of formats) {
+    try {
+      d = parse(cleanStr, fmt, new Date());
+      if (isValid(d)) return d;
+    } catch (e) {}
+  }
 
   return null;
 };
@@ -116,6 +138,7 @@ export default function App() {
   const [startStation, setStartStation] = useState('');
   const [endStation, setEndStation] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Handle Train Search
@@ -134,35 +157,49 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      alert("Please upload a CSV file. Excel (.xlsx) files are not supported directly.");
+      return;
+    }
+
     setIsUploading(true);
+    setUploadError(null);
+
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
       dynamicTyping: true,
       complete: (results) => {
+        const headers = results.meta.fields || [];
+        console.log("Found CSV Headers:", headers);
+
         const mappedData = results.data.map((row: any) => {
-          const rawTime = row.timestamp || row.Time || row.TIMESTAMP || row.time || '';
+          // Flexible column mapping
+          const rawTime = row.timestamp || row.Time || row.TIMESTAMP || row.time || row.IST_TIME || row.DATE || row.Date || '';
           const parsedDate = parseRTISDate(String(rawTime));
           
           return {
             timestamp: parsedDate ? parsedDate.toISOString() : '',
-            lat: row.lat || row.Latitude || row.LAT || 0,
-            lon: row.lon || row.Longitude || row.LON || 0,
-            speed: row.speed || row.Speed || row.SPEED || 0,
-            station: row.station || row.Station || row.STATION_CODE || row.STN || undefined
+            lat: row.lat || row.Latitude || row.LAT || row.LATITUDE || 0,
+            lon: row.lon || row.Longitude || row.LON || row.LONGITUDE || 0,
+            speed: row.speed || row.Speed || row.SPEED || row.SPEED_KMPH || row.VELOCITY || 0,
+            station: row.station || row.Station || row.STATION_CODE || row.STN || row.STN_CODE || row.STATION_NAME || undefined
           };
         }).filter(r => r.timestamp);
 
         if (mappedData.length === 0) {
-          alert("No valid records found. Please check CSV columns (timestamp, speed, station).");
+          const errorMsg = `No valid records found. \n\nFound columns: ${headers.join(', ')}\n\nPlease ensure your CSV has columns for Time, Speed, and Station.`;
+          setUploadError(errorMsg);
+          alert(errorMsg);
         } else {
           setRtisData(mappedData as RTISRecord[]);
+          setUploadError(null);
         }
         setIsUploading(false);
       },
       error: (err) => {
         console.error("CSV Parse Error:", err);
-        alert("Error parsing CSV file.");
+        setUploadError("Error parsing CSV file. Ensure it is a valid comma-separated file.");
         setIsUploading(false);
       }
     });
@@ -374,7 +411,8 @@ export default function App() {
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "w-full border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center gap-3 hover:border-indigo-400 hover:bg-indigo-50 transition-all group",
-                rtisData.length > 0 && "border-green-300 bg-green-50"
+                rtisData.length > 0 && "border-green-300 bg-green-50",
+                uploadError && "border-red-300 bg-red-50"
               )}
             >
               {isUploading ? (
@@ -389,6 +427,16 @@ export default function App() {
                     <p className="text-xs text-green-600">{rtisData.length} records found</p>
                   </div>
                 </>
+              ) : uploadError ? (
+                <>
+                  <div className="bg-red-100 p-3 rounded-full">
+                    <AlertCircle className="w-6 h-6 text-red-600" />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-red-700">Upload Failed</p>
+                    <p className="text-xs text-red-600 px-4">Check columns & format</p>
+                  </div>
+                </>
               ) : (
                 <>
                   <div className="bg-gray-100 p-3 rounded-full group-hover:bg-indigo-100 transition-colors">
@@ -401,6 +449,12 @@ export default function App() {
                 </>
               )}
             </button>
+            {uploadError && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-600 whitespace-pre-line">{uploadError}</p>
+              </div>
+            )}
           </div>
 
           {/* Station Selection Card */}
