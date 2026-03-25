@@ -1,0 +1,5 @@
+{
+  "name": "RailRun Analyst",
+  "description": "Analyze train performance using RTIS data and scheduled timetables. Calculate loss of run, halt times, and speed metrics.",
+  "requestFramePermissions": []
+}
