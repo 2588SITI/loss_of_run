@@ -91,7 +91,7 @@ export async function fetchTrainSchedule(trainNo: string, retryCount = 0): Promi
       // Ensure all fields have defaults if missing from AI response
       const processedSchedule = data.schedule.map((item: any) => ({
         stationName: item.stationName || "Unknown",
-        stationCode: item.stationCode || "???",
+        stationCode: item.stationCode || "",
         arrivalTime: item.arrivalTime || "00:00",
         departureTime: item.departureTime || "00:00",
         haltTime: item.haltTime || 0,

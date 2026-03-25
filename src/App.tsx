@@ -1013,9 +1013,9 @@ export default function App() {
                   onChange={(e) => setStartStation(e.target.value)}
                 >
                   <option value="">Select Station</option>
-                  {activeTrain?.schedule.map(s => (
-                    <option key={s.stationCode} value={s.stationCode}>
-                      {s.stationName}{s.stationCode ? ` (${s.stationCode})` : ''}
+                  {activeTrain?.schedule.map((s, idx) => (
+                    <option key={s.stationCode || idx} value={s.stationCode}>
+                      {s.stationName}{s.stationCode && s.stationCode.trim() ? ` (${s.stationCode.trim()})` : ''}
                     </option>
                   ))}
                 </select>
@@ -1035,9 +1035,9 @@ export default function App() {
                   onChange={(e) => setEndStation(e.target.value)}
                 >
                   <option value="">Select Station</option>
-                  {activeTrain?.schedule.map(s => (
-                    <option key={s.stationCode} value={s.stationCode}>
-                      {s.stationName}{s.stationCode ? ` (${s.stationCode})` : ''}
+                  {activeTrain?.schedule.map((s, idx) => (
+                    <option key={s.stationCode || idx} value={s.stationCode}>
+                      {s.stationName}{s.stationCode && s.stationCode.trim() ? ` (${s.stationCode.trim()})` : ''}
                     </option>
                   ))}
                 </select>
