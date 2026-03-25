@@ -59,11 +59,16 @@ const parseRTISDate = (dateStr: string): Date | null => {
     'MM-dd-yyyy HH:mm:ss',
     'M-d-yyyy HH:mm',
     'MM-dd-yyyy HH:mm',
+    'd-M-yyyy HH:mm:ss',
     'dd-MM-yyyy HH:mm:ss',
+    'd/M/yyyy HH:mm:ss',
     'dd/MM/yyyy HH:mm:ss',
+    'd-M-yyyy HH:mm',
     'dd-MM-yyyy HH:mm',
+    'd/M/yyyy HH:mm',
     'dd/MM/yyyy HH:mm',
     'yyyy-MM-dd HH:mm:ss',
+    'yyyy-MM-dd HH:mm',
     'dd-MMM-yy HH:mm:ss',
     'dd-MMM-yyyy HH:mm:ss',
     'dd-MMM-yy HH:mm',
@@ -166,29 +171,75 @@ export default function App() {
     setUploadError(null);
 
     Papa.parse(file, {
-      header: true,
+      header: false, // Parse as arrays first to find the header row
       skipEmptyLines: true,
-      dynamicTyping: true,
       complete: (results) => {
-        const headers = results.meta.fields || [];
-        console.log("Found CSV Headers:", headers);
+        const rows = results.data as string[][];
+        if (rows.length === 0) {
+          setUploadError("The file appears to be empty.");
+          setIsUploading(false);
+          return;
+        }
 
-        const mappedData = results.data.map((row: any) => {
+        // Find the header row
+        let headerIndex = -1;
+        const timeKeywords = ['time', 'timestamp', 'ist_time', 'date', 'date_time', 'datetime', 'logging time', 'logging_time'];
+        
+        for (let i = 0; i < Math.min(rows.length, 20); i++) {
+          const row = rows[i].map(c => String(c).toLowerCase().trim());
+          const hasTime = row.some(c => timeKeywords.some(k => c.includes(k)));
+          const hasSpeed = row.some(c => c.includes('speed') || c.includes('velocity'));
+          
+          if (hasTime && hasSpeed) {
+            headerIndex = i;
+            break;
+          }
+        }
+
+        if (headerIndex === -1) {
+          // Fallback to first row if no keywords found
+          headerIndex = 0;
+        }
+
+        const headers = rows[headerIndex].map(h => String(h).trim());
+        const dataRows = rows.slice(headerIndex + 1);
+
+        const mappedData = dataRows.map((rowArr) => {
+          const row: any = {};
+          headers.forEach((h, idx) => {
+            row[h] = rowArr[idx];
+          });
+
+          // Normalize row keys to lowercase for easier matching
+          const normalizedRow: any = {};
+          Object.keys(row).forEach(key => {
+            normalizedRow[key.toLowerCase()] = row[key];
+          });
+
+          const findValue = (keys: string[]) => {
+            for (const k of keys) {
+              if (normalizedRow[k.toLowerCase()] !== undefined && normalizedRow[k.toLowerCase()] !== null) {
+                return normalizedRow[k.toLowerCase()];
+              }
+            }
+            return '';
+          };
+
           // Flexible column mapping
-          const rawTime = row.timestamp || row.Time || row.TIMESTAMP || row.time || row.IST_TIME || row.DATE || row.Date || '';
+          const rawTime = findValue(['logging time', 'logging_time', 'timestamp', 'time', 'ist_time', 'date', 'date_time', 'datetime', 'ist_date_time']);
           const parsedDate = parseRTISDate(String(rawTime));
           
           return {
             timestamp: parsedDate ? parsedDate.toISOString() : '',
-            lat: row.lat || row.Latitude || row.LAT || row.LATITUDE || 0,
-            lon: row.lon || row.Longitude || row.LON || row.LONGITUDE || 0,
-            speed: row.speed || row.Speed || row.SPEED || row.SPEED_KMPH || row.VELOCITY || 0,
-            station: row.station || row.Station || row.STATION_CODE || row.STN || row.STN_CODE || row.STATION_NAME || undefined
+            lat: findValue(['latitude', 'lat', 'lat_deg']),
+            lon: findValue(['longitude', 'lon', 'lon_deg', 'long']),
+            speed: findValue(['speed', 'speed_kmph', 'velocity', 'speedkmph']),
+            station: findValue(['stationcode', 'station_code', 'station', 'stn', 'stn_code', 'station_name']) || undefined
           };
         }).filter(r => r.timestamp);
 
         if (mappedData.length === 0) {
-          const errorMsg = `No valid records found. \n\nFound columns: ${headers.join(', ')}\n\nPlease ensure your CSV has columns for Time, Speed, and Station.`;
+          const errorMsg = `No valid records found. \n\nDetected Headers: ${headers.join(', ')}\n\nPlease ensure your CSV has columns for Time, Speed, and Station.`;
           setUploadError(errorMsg);
           alert(errorMsg);
         } else {
