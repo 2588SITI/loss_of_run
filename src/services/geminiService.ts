@@ -37,7 +37,7 @@ export async function fetchTrainSchedule(trainNo: string, retryCount = 0): Promi
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-    console.log(`Searching for train ${trainNo} (v1.0.4, attempt ${retryCount + 1})...`);
+    console.log(`Searching for train ${trainNo} (v1.0.5, attempt ${retryCount + 1})...`);
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Find the current, official timetable for Indian Railways train number ${trainNo}. 

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Upload, 
   Train, 
@@ -166,7 +166,16 @@ export default function App() {
   const [endStation, setEndStation] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isApiKeyMissing, setIsApiKeyMissing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Check for API key on mount
+  useEffect(() => {
+    const apiKey = (process.env.GEMINI_API_KEY as string) || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+      setIsApiKeyMissing(true);
+    }
+  }, []);
 
   // Handle Train Search
   const handleSearch = async () => {
@@ -222,7 +231,10 @@ export default function App() {
       let message = "An error occurred while searching for the train schedule.";
       if (error instanceof Error) {
         message = error.message;
-        if (message.includes("403") || message.includes("Permission denied")) {
+        if (message.includes("Gemini API Key is missing")) {
+          message = "Gemini API Key is missing. Please add it to your environment variables (Settings -> Secrets in AI Studio).";
+          setIsApiKeyMissing(true);
+        } else if (message.includes("403") || message.includes("Permission denied")) {
           message = "Connection Error: Please check if the Gemini API is enabled for your project.";
         } else if (message.includes("429") || message.includes("Quota exceeded") || message.includes("Too many requests")) {
           message = "The service is currently receiving too many requests. Please wait about 60 seconds and try again. This is a temporary limit of the free Gemini API (especially with Search enabled).";
@@ -441,6 +453,19 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
+      {/* API Key Warning Banner */}
+      {isApiKeyMissing && (
+        <div className="bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium flex items-center justify-center gap-2 sticky top-0 z-50">
+          <AlertCircle className="w-4 h-4" />
+          <span>Gemini API Key is missing. Search functionality will not work.</span>
+          <button 
+            onClick={() => alert("Go to Settings -> Secrets in AI Studio and add GEMINI_API_KEY.")}
+            className="underline ml-2 hover:text-amber-100"
+          >
+            How to fix?
+          </button>
+        </div>
+      )}
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
@@ -496,7 +521,7 @@ export default function App() {
           <div className="flex justify-center gap-4 text-[10px] text-gray-400">
             <p>Try: 12301 (Rajdhani), 12002 (Shatabdi), 12423 (Dibrugarh Rajdhani)</p>
           </div>
-          <p className="text-[8px] text-gray-300">v1.0.4</p>
+          <p className="text-[8px] text-gray-300">v1.0.5</p>
         </div>
       </header>
 
