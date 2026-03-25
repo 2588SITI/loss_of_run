@@ -159,6 +159,7 @@ export default function App() {
   const [trainNo, setTrainNo] = useState('');
   const [activeTrain, setActiveTrain] = useState<TrainData | null>(null);
   const [isSearchingTrain, setIsSearchingTrain] = useState(false);
+  const [searchStatus, setSearchStatus] = useState<string>('');
   const [rtisData, setRtisData] = useState<RTISRecord[]>([]);
   const [startStation, setStartStation] = useState('');
   const [endStation, setEndStation] = useState('');
@@ -168,30 +169,60 @@ export default function App() {
 
   // Handle Train Search
   const handleSearch = async () => {
-    if (!trainNo) return;
+    const trimmedTrainNo = trainNo.trim();
+    if (!trimmedTrainNo) return;
     
+    console.log("Searching for train:", trimmedTrainNo);
     setIsSearchingTrain(true);
+    setSearchStatus('Searching official records...');
     try {
       // Check sample first for quick demo
-      if (SAMPLE_TRAINS[trainNo]) {
-        setActiveTrain(SAMPLE_TRAINS[trainNo]);
+      if (SAMPLE_TRAINS[trimmedTrainNo]) {
+        console.log("Found in Sample Data:", trimmedTrainNo);
+        setSearchStatus('Loading sample data...');
+        setActiveTrain(SAMPLE_TRAINS[trimmedTrainNo]);
         setStartStation('');
         setEndStation('');
       } else {
-        const actualData = await fetchTrainSchedule(trainNo);
+        console.log("Fetching from Gemini API:", trimmedTrainNo);
+        setSearchStatus('Connecting to Indian Railways database...');
+        
+        // Add a 60s timeout to the fetch call
+        const fetchPromise = fetchTrainSchedule(trimmedTrainNo);
+        const timeoutPromise = new Promise<null>((_, reject) => 
+          setTimeout(() => reject(new Error("Search timed out. The server is busy or the train number is invalid. Please try again.")), 60000)
+        );
+
+        const actualData = await Promise.race([fetchPromise, timeoutPromise]) as TrainData | null;
+        
         if (actualData) {
+          console.log("Successfully fetched from Gemini:", actualData.trainName);
+          setSearchStatus('Schedule found!');
           setActiveTrain(actualData);
           setStartStation('');
           setEndStation('');
         } else {
-          alert("Train schedule not found. Please verify the train number and try again.");
+          console.warn("Gemini API returned null for train:", trimmedTrainNo);
+          setSearchStatus('');
+          alert("Train schedule not found. Please verify the train number (e.g., 12301, 12002, 12423) and try again.");
         }
       }
     } catch (error) {
       console.error("Search error:", error);
-      alert("An error occurred while searching for the train schedule.");
+      setSearchStatus('');
+      let message = "An error occurred while searching for the train schedule.";
+      if (error instanceof Error) {
+        message = error.message;
+        if (message.includes("403") || message.includes("Permission denied")) {
+          message = "Connection Error: Please check if the Gemini API is enabled for your project.";
+        } else if (message.includes("429") || message.includes("Quota exceeded")) {
+          message = "Too many requests. Please wait a moment and try again.";
+        }
+      }
+      alert(message);
     } finally {
       setIsSearchingTrain(false);
+      setTimeout(() => setSearchStatus(''), 3000);
     }
   };
 
@@ -444,6 +475,16 @@ export default function App() {
               "Search"
             )}
           </button>
+        </div>
+        {searchStatus && (
+          <div className="mt-2 text-center">
+            <p className="text-xs text-indigo-600 font-medium animate-pulse">
+              {searchStatus}
+            </p>
+          </div>
+        )}
+        <div className="mt-4 flex justify-center gap-4 text-[10px] text-gray-400">
+          <p>Try: 12301 (Rajdhani), 12002 (Shatabdi), 12423 (Dibrugarh Rajdhani)</p>
         </div>
       </header>
 
