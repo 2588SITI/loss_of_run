@@ -31,6 +31,7 @@ import {
 } from 'recharts';
 import { format, parse, differenceInMinutes, isValid } from 'date-fns';
 import { cn } from './lib/utils';
+import { fetchTrainSchedule, type TrainData } from './services/geminiService';
 
 // Types
 interface RTISRecord {
@@ -121,22 +122,6 @@ const parseRTISDate = (dateStr: string): Date | null => {
   return null;
 };
 
-interface ScheduleItem {
-  stationName: string;
-  stationCode: string;
-  arrivalTime: string;
-  departureTime: string;
-  haltTime: number; // in minutes
-  distance: number;
-  day: number;
-}
-
-interface TrainData {
-  trainNo: string;
-  trainName: string;
-  schedule: ScheduleItem[];
-}
-
 // Mock Data Source for Train Timetables
 // In a real app, this would be an API call
 const MOCK_TRAINS: Record<string, TrainData> = {
@@ -174,6 +159,7 @@ const MOCK_TRAINS: Record<string, TrainData> = {
 export default function App() {
   const [trainNo, setTrainNo] = useState('');
   const [activeTrain, setActiveTrain] = useState<TrainData | null>(null);
+  const [isSearchingTrain, setIsSearchingTrain] = useState(false);
   const [rtisData, setRtisData] = useState<RTISRecord[]>([]);
   const [startStation, setStartStation] = useState('');
   const [endStation, setEndStation] = useState('');
@@ -182,13 +168,31 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Handle Train Search
-  const handleSearch = () => {
-    if (MOCK_TRAINS[trainNo]) {
-      setActiveTrain(MOCK_TRAINS[trainNo]);
-      setStartStation('');
-      setEndStation('');
-    } else {
-      alert("Train not found in mock database. Try 12301 or 12002.");
+  const handleSearch = async () => {
+    if (!trainNo) return;
+    
+    setIsSearchingTrain(true);
+    try {
+      // Check mock first for demo purposes
+      if (MOCK_TRAINS[trainNo]) {
+        setActiveTrain(MOCK_TRAINS[trainNo]);
+        setStartStation('');
+        setEndStation('');
+      } else {
+        const actualData = await fetchTrainSchedule(trainNo);
+        if (actualData) {
+          setActiveTrain(actualData);
+          setStartStation('');
+          setEndStation('');
+        } else {
+          alert("Could not find schedule for this train number. Please check the number and try again.");
+        }
+      }
+    } catch (error) {
+      console.error("Search error:", error);
+      alert("An error occurred while searching for the train schedule.");
+    } finally {
+      setIsSearchingTrain(false);
     }
   };
 
@@ -466,9 +470,17 @@ export default function App() {
           </button>
           <button 
             onClick={handleSearch}
-            className="bg-indigo-600 text-white px-6 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
+            disabled={isSearchingTrain}
+            className="bg-indigo-600 text-white px-6 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            Search
+            {isSearchingTrain ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Searching...
+              </>
+            ) : (
+              "Search"
+            )}
           </button>
         </div>
       </header>
@@ -606,7 +618,7 @@ export default function App() {
               </ul>
               <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
                 <p className="text-xs text-indigo-700">
-                  <strong>Tip:</strong> Use "Demo Mode" in the header to see a sample analysis with pre-loaded data.
+                  <strong>Tip:</strong> You can now search for <strong>any real train number</strong> in the header to fetch its actual timetable.
                 </p>
               </div>
             </div>
