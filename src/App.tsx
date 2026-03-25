@@ -483,8 +483,11 @@ export default function App() {
             </p>
           </div>
         )}
-        <div className="mt-4 flex justify-center gap-4 text-[10px] text-gray-400">
-          <p>Try: 12301 (Rajdhani), 12002 (Shatabdi), 12423 (Dibrugarh Rajdhani)</p>
+        <div className="mt-4 flex flex-col items-center gap-2">
+          <div className="flex justify-center gap-4 text-[10px] text-gray-400">
+            <p>Try: 12301 (Rajdhani), 12002 (Shatabdi), 12423 (Dibrugarh Rajdhani)</p>
+          </div>
+          <p className="text-[8px] text-gray-300">v1.0.2</p>
         </div>
       </header>
 

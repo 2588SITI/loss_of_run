@@ -18,14 +18,15 @@ export interface TrainData {
 
 export async function fetchTrainSchedule(trainNo: string): Promise<TrainData | null> {
   // Try to get the API key from multiple possible sources
-  const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+  // In AI Studio, GEMINI_API_KEY is usually available in process.env
+  const apiKey = (process.env.GEMINI_API_KEY as string) || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
   
   // We'll proceed even if apiKey is empty, as the SDK might have its own way of resolving it 
   // or the environment might have it injected globally.
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-    console.log(`Searching for train ${trainNo}...`);
+    console.log(`Searching for train ${trainNo} (v1.0.2)...`);
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Find the current, official timetable for Indian Railways train number ${trainNo}. 
