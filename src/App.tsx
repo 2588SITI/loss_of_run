@@ -417,9 +417,12 @@ export default function App() {
   const [endStation, setEndStation] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isTimetableUploading, setIsTimetableUploading] = useState(false);
+  const [timetableUploadError, setTimetableUploadError] = useState<string | null>(null);
   const [isApiKeyMissing, setIsApiKeyMissing] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const timetableFileInputRef = useRef<HTMLInputElement>(null);
 
   // Check for API key on mount
   useEffect(() => {
@@ -606,6 +609,54 @@ export default function App() {
         console.error("CSV Parse Error:", err);
         setUploadError("Error parsing CSV file. Ensure it is a valid comma-separated file.");
         setIsUploading(false);
+      }
+    });
+  };
+
+  // Handle Timetable File Upload
+  const handleTimetableUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsTimetableUploading(true);
+    setTimetableUploadError(null);
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const data = results.data as any[];
+        const newSchedule: ScheduleItem[] = data.map(row => ({
+          stationName: row['Station Name'] || row['stationName'] || row['Station'] || '',
+          stationCode: row['Station Code'] || row['stationCode'] || row['Code'] || '',
+          arrivalTime: row['Arrival'] || row['arrivalTime'] || '00:00',
+          departureTime: row['Departure'] || row['departureTime'] || '00:00',
+          haltTime: parseInt(row['Halt'] || row['haltTime'] || row['Halt (m)']) || 0,
+          distance: parseInt(row['Distance'] || row['distance'] || row['Dist (km)']) || 0,
+          day: parseInt(row['Day'] || row['day']) || 1
+        }));
+
+        if (newSchedule.length > 0) {
+          let tNo = '';
+          const match = file.name.match(/\d{5}/);
+          if (match) tNo = match[0];
+
+          setActiveTrain({
+            trainNo: tNo || 'Uploaded',
+            trainName: file.name.replace('.csv', ''),
+            schedule: newSchedule
+          });
+          setStartStation('');
+          setEndStation('');
+          setTimetableUploadError(null);
+        } else {
+          setTimetableUploadError("No valid schedule data found in CSV.");
+        }
+        setIsTimetableUploading(false);
+      },
+      error: (err) => {
+        setTimetableUploadError("Error parsing Timetable CSV.");
+        setIsTimetableUploading(false);
       }
     });
   };
@@ -817,6 +868,66 @@ export default function App() {
         {/* Left Panel: Configuration & Upload */}
         <div className="lg:col-span-4 space-y-6">
           
+          {/* Timetable Upload Card */}
+          <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="w-5 h-5 text-indigo-600" />
+              <h2 className="font-bold text-lg">Train Timetable</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-6">Upload the Train Timetable CSV file or use the search bar above.</p>
+            
+            <input 
+              type="file" 
+              ref={timetableFileInputRef} 
+              className="hidden" 
+              accept=".csv" 
+              onChange={handleTimetableUpload}
+            />
+            
+            <button 
+              onClick={() => timetableFileInputRef.current?.click()}
+              className={cn(
+                "w-full border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center gap-3 hover:border-indigo-400 hover:bg-indigo-50 transition-all group",
+                activeTrain && "border-indigo-300 bg-indigo-50",
+                timetableUploadError && "border-red-300 bg-red-50"
+              )}
+            >
+              {isTimetableUploading ? (
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              ) : activeTrain ? (
+                <>
+                  <div className="bg-indigo-100 p-3 rounded-full">
+                    <Train className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-indigo-700">{activeTrain.trainNo} - {activeTrain.trainName}</p>
+                    <p className="text-xs text-indigo-600">{activeTrain.schedule.length} stations loaded</p>
+                  </div>
+                </>
+              ) : timetableUploadError ? (
+                <>
+                  <div className="bg-red-100 p-3 rounded-full">
+                    <AlertCircle className="w-6 h-6 text-red-600" />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-red-700">Upload Failed</p>
+                    <p className="text-xs text-red-600 px-4">{timetableUploadError}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="bg-gray-100 p-3 rounded-full group-hover:bg-indigo-100 transition-colors">
+                    <Upload className="w-6 h-6 text-gray-400 group-hover:text-indigo-600" />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-gray-700">Upload Timetable CSV</p>
+                    <p className="text-xs text-gray-400">Standard IR format</p>
+                  </div>
+                </>
+              )}
+            </button>
+          </div>
+
           {/* File Upload Card */}
           <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
