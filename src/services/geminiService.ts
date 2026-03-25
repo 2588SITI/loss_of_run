@@ -16,7 +16,16 @@ export interface TrainData {
   schedule: ScheduleItem[];
 }
 
+// Simple in-memory cache to avoid redundant API calls
+const trainCache = new Map<string, TrainData>();
+
 export async function fetchTrainSchedule(trainNo: string, retryCount = 0): Promise<TrainData | null> {
+  // Check cache first
+  if (trainCache.has(trainNo)) {
+    console.log(`Returning cached data for train ${trainNo}`);
+    return trainCache.get(trainNo)!;
+  }
+
   // Try to get the API key from multiple possible sources
   // In AI Studio, GEMINI_API_KEY is usually available in process.env
   const apiKey = (process.env.GEMINI_API_KEY as string) || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
@@ -28,7 +37,7 @@ export async function fetchTrainSchedule(trainNo: string, retryCount = 0): Promi
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-    console.log(`Searching for train ${trainNo} (v1.0.3, attempt ${retryCount + 1})...`);
+    console.log(`Searching for train ${trainNo} (v1.0.4, attempt ${retryCount + 1})...`);
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Find the current, official timetable for Indian Railways train number ${trainNo}. 
@@ -90,11 +99,15 @@ export async function fetchTrainSchedule(trainNo: string, retryCount = 0): Promi
         day: item.day || 1
       }));
 
-      return {
+      const result = {
         trainNo: data.trainNo || trainNo,
         trainName: data.trainName || `Train ${trainNo}`,
         schedule: processedSchedule
       };
+
+      // Cache the result
+      trainCache.set(trainNo, result);
+      return result;
     } catch (parseError) {
       console.error("Failed to parse train data:", parseError);
       return null;

@@ -159,6 +159,7 @@ export default function App() {
   const [trainNo, setTrainNo] = useState('');
   const [activeTrain, setActiveTrain] = useState<TrainData | null>(null);
   const [isSearchingTrain, setIsSearchingTrain] = useState(false);
+  const [lastSearchTime, setLastSearchTime] = useState(0);
   const [searchStatus, setSearchStatus] = useState<string>('');
   const [rtisData, setRtisData] = useState<RTISRecord[]>([]);
   const [startStation, setStartStation] = useState('');
@@ -170,8 +171,16 @@ export default function App() {
   // Handle Train Search
   const handleSearch = async () => {
     const trimmedTrainNo = trainNo.trim();
-    if (!trimmedTrainNo) return;
+    if (!trimmedTrainNo || isSearchingTrain) return;
+
+    // Prevent searching more than once every 10 seconds to respect API limits
+    const now = Date.now();
+    if (now - lastSearchTime < 10000) {
+      alert("Please wait at least 10 seconds between searches to respect API limits.");
+      return;
+    }
     
+    setLastSearchTime(now);
     console.log("Searching for train:", trimmedTrainNo);
     setIsSearchingTrain(true);
     setSearchStatus('Searching official records...');
@@ -216,7 +225,7 @@ export default function App() {
         if (message.includes("403") || message.includes("Permission denied")) {
           message = "Connection Error: Please check if the Gemini API is enabled for your project.";
         } else if (message.includes("429") || message.includes("Quota exceeded") || message.includes("Too many requests")) {
-          message = "The service is currently receiving too many requests. Please wait about 30-60 seconds and try again. This is a temporary limit of the free API.";
+          message = "The service is currently receiving too many requests. Please wait about 60 seconds and try again. This is a temporary limit of the free Gemini API (especially with Search enabled).";
         }
       }
       alert(message);
@@ -487,7 +496,7 @@ export default function App() {
           <div className="flex justify-center gap-4 text-[10px] text-gray-400">
             <p>Try: 12301 (Rajdhani), 12002 (Shatabdi), 12423 (Dibrugarh Rajdhani)</p>
           </div>
-          <p className="text-[8px] text-gray-300">v1.0.3</p>
+          <p className="text-[8px] text-gray-300">v1.0.4</p>
         </div>
       </header>
 
