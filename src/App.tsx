@@ -122,9 +122,8 @@ const parseRTISDate = (dateStr: string): Date | null => {
   return null;
 };
 
-// Mock Data Source for Train Timetables
-// In a real app, this would be an API call
-const MOCK_TRAINS: Record<string, TrainData> = {
+// Sample Data Source for Demo
+const SAMPLE_TRAINS: Record<string, TrainData> = {
   "12301": {
     trainNo: "12301",
     trainName: "Howrah Rajdhani Express",
@@ -173,9 +172,9 @@ export default function App() {
     
     setIsSearchingTrain(true);
     try {
-      // Check mock first for demo purposes
-      if (MOCK_TRAINS[trainNo]) {
-        setActiveTrain(MOCK_TRAINS[trainNo]);
+      // Check sample first for quick demo
+      if (SAMPLE_TRAINS[trainNo]) {
+        setActiveTrain(SAMPLE_TRAINS[trainNo]);
         setStartStation('');
         setEndStation('');
       } else {
@@ -185,7 +184,7 @@ export default function App() {
           setStartStation('');
           setEndStation('');
         } else {
-          alert("Could not find schedule for this train number. Please check the number and try again.");
+          alert("Train schedule not found. Please verify the train number and try again.");
         }
       }
     } catch (error) {
@@ -294,46 +293,6 @@ export default function App() {
         setIsUploading(false);
       }
     });
-  };
-
-  const loadDemoData = () => {
-    setTrainNo('12301');
-    setActiveTrain(MOCK_TRAINS['12301']);
-    
-    // Generate some fake RTIS data for demo
-    const demoRecords: RTISRecord[] = [];
-    const schedule = MOCK_TRAINS['12301'].schedule;
-    const baseDate = new Date();
-    baseDate.setHours(16, 0, 0, 0);
-
-    schedule.forEach((s, idx) => {
-      const schedTime = parse(s.arrivalTime === "00:00" ? s.departureTime : s.arrivalTime, 'HH:mm', baseDate);
-      // Add some delay for demo
-      const actualTime = new Date(schedTime.getTime() + (idx * 5 * 60000)); 
-      
-      // Add station arrival
-      demoRecords.push({
-        timestamp: actualTime.toISOString(),
-        lat: 0, lon: 0, speed: 0,
-        station: s.stationCode
-      });
-
-      // Add some moving records between stations
-      if (idx < schedule.length - 1) {
-        for (let i = 1; i <= 5; i++) {
-          const moveTime = new Date(actualTime.getTime() + (i * 10 * 60000));
-          demoRecords.push({
-            timestamp: moveTime.toISOString(),
-            lat: 0, lon: 0, speed: 80 + (Math.random() * 40),
-            station: undefined
-          });
-        }
-      }
-    });
-
-    setRtisData(demoRecords);
-    setStartStation('HWH');
-    setEndStation('NDLS');
   };
 
   // Analysis Logic
@@ -463,10 +422,13 @@ export default function App() {
             <Train className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           </div>
           <button 
-            onClick={loadDemoData}
+            onClick={() => {
+              setTrainNo('12301');
+              handleSearch();
+            }}
             className="text-indigo-600 border border-indigo-600 px-4 py-2 rounded-full text-sm font-semibold hover:bg-indigo-50 transition-colors"
           >
-            Demo Mode
+            Sample Train
           </button>
           <button 
             onClick={handleSearch}
