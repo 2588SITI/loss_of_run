@@ -192,19 +192,52 @@ function ManualTrainModal({ isOpen, onClose, onSave }: ManualTrainModalProps) {
     if (!file) return;
 
     Papa.parse(file, {
-      header: true,
+      header: false,
       skipEmptyLines: true,
       complete: (results) => {
-        const data = results.data as any[];
-        const newSchedule: ScheduleItem[] = data.map(row => ({
-          stationName: row['Station Name'] || row['stationName'] || '',
-          stationCode: row['Station Code'] || row['stationCode'] || '',
-          arrivalTime: row['Arrival'] || row['arrivalTime'] || '00:00',
-          departureTime: row['Departure'] || row['departureTime'] || '00:00',
-          haltTime: parseInt(row['Halt'] || row['haltTime']) || 0,
-          distance: parseInt(row['Distance'] || row['distance']) || 0,
-          day: parseInt(row['Day'] || row['day']) || 1
-        }));
+        const rows = results.data as string[][];
+        if (rows.length === 0) return;
+
+        // Find header row
+        let headerIndex = -1;
+        const stationKeywords = ['station', 'stn', 'code'];
+        for (let i = 0; i < Math.min(rows.length, 20); i++) {
+          const row = rows[i].map(c => String(c).toLowerCase().trim());
+          if (row.some(c => stationKeywords.some(k => c.includes(k)))) {
+            headerIndex = i;
+            break;
+          }
+        }
+        if (headerIndex === -1) headerIndex = 0;
+
+        const headers = rows[headerIndex].map(h => String(h).trim());
+        const dataRows = rows.slice(headerIndex + 1);
+
+        const newSchedule: ScheduleItem[] = dataRows.map(rowArr => {
+          const row: any = {};
+          headers.forEach((h, idx) => { row[h.toLowerCase().replace(/[^a-z0-9]/g, '')] = rowArr[idx]; });
+          
+          const getVal = (keys: string[]) => {
+            for (const k of keys) {
+              const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (row[normK] !== undefined) return row[normK];
+            }
+            return '';
+          };
+
+          const sName = getVal(['station name', 'stationname', 'stn name', 'stnname', 'station', 'stn']);
+          const sCode = getVal(['station code', 'stationcode', 'stn code', 'stncode', 'code', 'stn']);
+
+          return {
+            stationName: sName || sCode || 'Unknown',
+            stationCode: sCode || sName || '',
+            arrivalTime: getVal(['arrival', 'arrivaltime', 'arr']) || '00:00',
+            departureTime: getVal(['departure', 'departuretime', 'dep']) || '00:00',
+            haltTime: parseInt(getVal(['halt', 'halttime', 'haltm'])) || 0,
+            distance: parseInt(getVal(['distance', 'dist', 'distkm'])) || 0,
+            day: parseInt(getVal(['day'])) || 1
+          };
+        });
 
         if (newSchedule.length > 0) {
           setSchedule(newSchedule);
@@ -590,7 +623,7 @@ export default function App() {
             lat: findValue(['latitude', 'lat', 'lat_deg']),
             lon: findValue(['longitude', 'lon', 'lon_deg', 'long']),
             speed: findValue(['speed', 'speed_kmph', 'velocity', 'speedkmph']),
-            station: findValue(['stationcode', 'station_code', 'station', 'stn', 'stn_code', 'station_name']) || undefined
+            station: findValue(['stationcode', 'station_code', 'station', 'stn', 'stn_code', 'station_name', 'location', 'halt_station', 'stnname']) || undefined
           };
         }).filter(r => r.timestamp);
 
@@ -622,19 +655,56 @@ export default function App() {
     setTimetableUploadError(null);
 
     Papa.parse(file, {
-      header: true,
+      header: false,
       skipEmptyLines: true,
       complete: (results) => {
-        const data = results.data as any[];
-        const newSchedule: ScheduleItem[] = data.map(row => ({
-          stationName: row['Station Name'] || row['stationName'] || row['Station'] || '',
-          stationCode: row['Station Code'] || row['stationCode'] || row['Code'] || '',
-          arrivalTime: row['Arrival'] || row['arrivalTime'] || '00:00',
-          departureTime: row['Departure'] || row['departureTime'] || '00:00',
-          haltTime: parseInt(row['Halt'] || row['haltTime'] || row['Halt (m)']) || 0,
-          distance: parseInt(row['Distance'] || row['distance'] || row['Dist (km)']) || 0,
-          day: parseInt(row['Day'] || row['day']) || 1
-        }));
+        const rows = results.data as string[][];
+        if (rows.length === 0) {
+          setTimetableUploadError("The file appears to be empty.");
+          setIsTimetableUploading(false);
+          return;
+        }
+
+        // Find header row
+        let headerIndex = -1;
+        const stationKeywords = ['station', 'stn', 'code'];
+        for (let i = 0; i < Math.min(rows.length, 20); i++) {
+          const row = rows[i].map(c => String(c).toLowerCase().trim());
+          if (row.some(c => stationKeywords.some(k => c.includes(k)))) {
+            headerIndex = i;
+            break;
+          }
+        }
+        if (headerIndex === -1) headerIndex = 0;
+
+        const headers = rows[headerIndex].map(h => String(h).trim());
+        const dataRows = rows.slice(headerIndex + 1);
+
+        const newSchedule: ScheduleItem[] = dataRows.map(rowArr => {
+          const row: any = {};
+          headers.forEach((h, idx) => { row[h.toLowerCase().replace(/[^a-z0-9]/g, '')] = rowArr[idx]; });
+          
+          const getVal = (keys: string[]) => {
+            for (const k of keys) {
+              const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (row[normK] !== undefined) return row[normK];
+            }
+            return '';
+          };
+
+          const sName = getVal(['station name', 'stationname', 'stn name', 'stnname', 'station', 'stn']);
+          const sCode = getVal(['station code', 'stationcode', 'stn code', 'stncode', 'code', 'stn']);
+
+          return {
+            stationName: sName || sCode || 'Unknown',
+            stationCode: sCode || sName || '',
+            arrivalTime: getVal(['arrival', 'arrivaltime', 'arr']) || '00:00',
+            departureTime: getVal(['departure', 'departuretime', 'dep']) || '00:00',
+            haltTime: parseInt(getVal(['halt', 'halttime', 'haltm'])) || 0,
+            distance: parseInt(getVal(['distance', 'dist', 'distkm'])) || 0,
+            day: parseInt(getVal(['day'])) || 1
+          };
+        });
 
         if (newSchedule.length > 0) {
           let tNo = '';
@@ -665,8 +735,8 @@ export default function App() {
   const analysis = useMemo(() => {
     if (!activeTrain || !startStation || !endStation || rtisData.length === 0) return null;
 
-    const startIndex = activeTrain.schedule.findIndex(s => s.stationCode === startStation);
-    const endIndex = activeTrain.schedule.findIndex(s => s.stationCode === endStation);
+    const startIndex = activeTrain.schedule.findIndex(s => (s.stationCode || s.stationName) === startStation);
+    const endIndex = activeTrain.schedule.findIndex(s => (s.stationCode || s.stationName) === endStation);
 
     if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) return null;
 
@@ -1014,8 +1084,8 @@ export default function App() {
                 >
                   <option value="">Select Station</option>
                   {activeTrain?.schedule.map((s, idx) => (
-                    <option key={s.stationCode || idx} value={s.stationCode}>
-                      {s.stationName}{s.stationCode && s.stationCode.trim() ? ` (${s.stationCode.trim()})` : ''}
+                    <option key={s.stationCode || s.stationName || idx} value={s.stationCode || s.stationName}>
+                      {s.stationName}{s.stationCode && s.stationCode.trim() && s.stationCode !== s.stationName ? ` (${s.stationCode.trim()})` : ''}
                     </option>
                   ))}
                 </select>
@@ -1036,8 +1106,8 @@ export default function App() {
                 >
                   <option value="">Select Station</option>
                   {activeTrain?.schedule.map((s, idx) => (
-                    <option key={s.stationCode || idx} value={s.stationCode}>
-                      {s.stationName}{s.stationCode && s.stationCode.trim() ? ` (${s.stationCode.trim()})` : ''}
+                    <option key={s.stationCode || s.stationName || idx} value={s.stationCode || s.stationName}>
+                      {s.stationName}{s.stationCode && s.stationCode.trim() && s.stationCode !== s.stationName ? ` (${s.stationCode.trim()})` : ''}
                     </option>
                   ))}
                 </select>
