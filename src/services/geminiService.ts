@@ -37,7 +37,7 @@ export async function fetchTrainSchedule(trainNo: string, retryCount = 0): Promi
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-    console.log(`Searching for train ${trainNo} (v1.0.5, attempt ${retryCount + 1})...`);
+    console.log(`Searching for train ${trainNo} (v1.0.6, attempt ${retryCount + 1})...`);
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Find the current, official timetable for Indian Railways train number ${trainNo}. 
@@ -119,7 +119,7 @@ export async function fetchTrainSchedule(trainNo: string, retryCount = 0): Promi
     const isRateLimit = error?.message?.includes("429") || error?.message?.includes("Quota exceeded") || error?.message?.includes("Too many requests");
     
     if (isRateLimit && retryCount < 3) {
-      const delay = Math.pow(2, retryCount) * 2000; // 2s, 4s, 8s
+      const delay = Math.pow(2, retryCount) * 5000; // 5s, 10s, 20s
       console.log(`Rate limit hit. Retrying in ${delay}ms...`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchTrainSchedule(trainNo, retryCount + 1);

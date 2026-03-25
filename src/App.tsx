@@ -160,6 +160,7 @@ export default function App() {
   const [activeTrain, setActiveTrain] = useState<TrainData | null>(null);
   const [isSearchingTrain, setIsSearchingTrain] = useState(false);
   const [lastSearchTime, setLastSearchTime] = useState(0);
+  const [rateLimitCountdown, setRateLimitCountdown] = useState(0);
   const [searchStatus, setSearchStatus] = useState<string>('');
   const [rtisData, setRtisData] = useState<RTISRecord[]>([]);
   const [startStation, setStartStation] = useState('');
@@ -182,10 +183,21 @@ export default function App() {
     const trimmedTrainNo = trainNo.trim();
     if (!trimmedTrainNo || isSearchingTrain) return;
 
-    // Prevent searching more than once every 10 seconds to respect API limits
+    // Prevent searching more than once every 20 seconds to respect API limits
     const now = Date.now();
-    if (now - lastSearchTime < 10000) {
-      alert("Please wait at least 10 seconds between searches to respect API limits.");
+    const timeSinceLastSearch = now - lastSearchTime;
+    if (timeSinceLastSearch < 20000) {
+      const remaining = Math.ceil((20000 - timeSinceLastSearch) / 1000);
+      setRateLimitCountdown(remaining);
+      const timer = setInterval(() => {
+        setRateLimitCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
       return;
     }
     
@@ -475,16 +487,22 @@ export default function App() {
           <h1 className="text-xl font-bold tracking-tight text-indigo-900">RailRun Analyst</h1>
         </div>
         <div className="flex items-center gap-4">
-          <div className="relative">
+          <div className="relative group">
             <input 
               type="text" 
-              placeholder="Enter Train No (e.g. 12301)" 
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-full text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all w-64"
+              placeholder={rateLimitCountdown > 0 ? `Wait ${rateLimitCountdown}s...` : "Enter Train No (e.g. 12301)"}
+              className={`pl-10 pr-4 py-2 border border-gray-300 rounded-full text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all w-64 ${rateLimitCountdown > 0 ? 'bg-gray-100 cursor-not-allowed' : ''}`}
               value={trainNo}
               onChange={(e) => setTrainNo(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              disabled={rateLimitCountdown > 0}
             />
-            <Train className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Train className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${rateLimitCountdown > 0 ? 'text-gray-300' : 'text-gray-400'}`} />
+            {isSearchingTrain && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
+              </div>
+            )}
           </div>
           <button 
             onClick={() => {
@@ -521,7 +539,7 @@ export default function App() {
           <div className="flex justify-center gap-4 text-[10px] text-gray-400">
             <p>Try: 12301 (Rajdhani), 12002 (Shatabdi), 12423 (Dibrugarh Rajdhani)</p>
           </div>
-          <p className="text-[8px] text-gray-300">v1.0.5</p>
+          <p className="text-[8px] text-gray-300">v1.0.6</p>
         </div>
       </header>
 
