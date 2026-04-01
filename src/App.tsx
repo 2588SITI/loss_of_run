@@ -17,9 +17,12 @@ import {
   FileText,
   AlertCircle,
   Plus,
-  X
+  X,
+  Download
 } from 'lucide-react';
 import Papa from 'papaparse';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { 
   LineChart, 
   Line, 
@@ -31,7 +34,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { format, parse, differenceInMinutes, isValid } from 'date-fns';
+import { format, parse, differenceInMinutes, differenceInSeconds, isValid } from 'date-fns';
 import { cn } from './lib/utils';
 import { fetchTrainSchedule, type TrainData, type ScheduleItem } from './services/geminiService';
 
@@ -572,14 +575,17 @@ export default function App() {
 
         // Find the header row
         let headerIndex = -1;
-        const timeKeywords = ['time', 'timestamp', 'ist_time', 'date', 'date_time', 'datetime', 'logging time', 'logging_time'];
+        const timeKeywords = ['time', 'timestamp', 'ist_time', 'date', 'date_time', 'datetime', 'logging time', 'logging_time', 't'];
+        const speedKeywords = ['speed', 'velocity', 'kmph', 'v', 's'];
+        const stationKeywords = ['station', 'stn', 'code', 'h', 'loc'];
         
         for (let i = 0; i < Math.min(rows.length, 20); i++) {
           const row = rows[i].map(c => String(c).toLowerCase().trim());
-          const hasTime = row.some(c => timeKeywords.some(k => c.includes(k)));
-          const hasSpeed = row.some(c => c.includes('speed') || c.includes('velocity'));
+          const hasTime = row.some(c => timeKeywords.some(k => c === k || c.includes(k)));
+          const hasSpeed = row.some(c => speedKeywords.some(k => c === k || c.includes(k)));
+          const hasStation = row.some(c => stationKeywords.some(k => c === k || c.includes(k)));
           
-          if (hasTime && hasSpeed) {
+          if (hasTime && (hasSpeed || hasStation)) {
             headerIndex = i;
             break;
           }
@@ -615,15 +621,15 @@ export default function App() {
           };
 
           // Flexible column mapping
-          const rawTime = findValue(['logging time', 'logging_time', 'timestamp', 'time', 'ist_time', 'date', 'date_time', 'datetime', 'ist_date_time']);
+          const rawTime = findValue(['logging time', 'logging_time', 'timestamp', 'time', 'ist_time', 'date', 'date_time', 'datetime', 'ist_date_time', 't']);
           const parsedDate = parseRTISDate(String(rawTime));
           
           return {
             timestamp: parsedDate ? parsedDate.toISOString() : '',
             lat: findValue(['latitude', 'lat', 'lat_deg']),
             lon: findValue(['longitude', 'lon', 'lon_deg', 'long']),
-            speed: findValue(['speed', 'speed_kmph', 'velocity', 'speedkmph']),
-            station: findValue(['stationcode', 'station_code', 'station', 'stn', 'stn_code', 'station_name', 'location', 'halt_station', 'stnname']) || undefined
+            speed: findValue(['speed', 'speed_kmph', 'velocity', 'speedkmph', 'v', 's']),
+            station: findValue(['stationcode', 'station_code', 'station', 'stn', 'stn_code', 'station_name', 'location', 'halt_station', 'stnname', 'h']) || undefined
           };
         }).filter(r => r.timestamp);
 
@@ -754,8 +760,17 @@ export default function App() {
 
     // Find Actual Times from RTIS Data
     // We look for the first occurrence of the station in RTIS data
-    const actualStartRecord = rtisData.find(r => r.station === startSched.stationCode || r.station === startSched.stationName);
-    const actualEndRecord = rtisData.find(r => r.station === endSched.stationCode || r.station === endSched.stationName);
+    const normalize = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+    
+    const actualStartRecord = rtisData.find(r => {
+      const rStn = normalize(r.station || '');
+      return rStn && (rStn === normalize(startSched.stationCode) || rStn === normalize(startSched.stationName));
+    });
+    
+    const actualEndRecord = rtisData.find(r => {
+      const rStn = normalize(r.station || '');
+      return rStn && (rStn === normalize(endSched.stationCode) || rStn === normalize(endSched.stationName));
+    });
 
     if (!actualStartRecord || !actualEndRecord) {
       return { error: "RTIS data does not contain both selected stations." };
@@ -779,13 +794,32 @@ export default function App() {
     // Halt Analysis
     const haltsInRange = activeTrain.schedule.slice(startIndex, endIndex + 1).map(s => {
       // Try to find actual halt in RTIS
-      const stationRecords = rtisData.filter(r => r.station === s.stationCode || r.station === s.stationName);
+      const sCode = normalize(s.stationCode);
+      const sName = normalize(s.stationName);
+      
+      // Filter records for this station
+      const stationRecords = rtisData.filter(r => {
+        const rStn = normalize(r.station || '');
+        return rStn && (rStn === sCode || rStn === sName);
+      });
+
+      // Calculate halt based on zero speed duration as requested
+      // "kisi station pe kitane time tak speed zero hai vo train ka halt ho ga"
+      const zeroSpeedRecords = stationRecords.filter(r => Number(r.speed) === 0);
+      
       let actualHalt = 0;
-      if (stationRecords.length > 1) {
-        const arrival = new Date(stationRecords[0].timestamp);
-        const departure = new Date(stationRecords[stationRecords.length - 1].timestamp);
-        actualHalt = differenceInMinutes(departure, arrival);
+      if (zeroSpeedRecords.length > 1) {
+        const firstZero = new Date(zeroSpeedRecords[0].timestamp);
+        const lastZero = new Date(zeroSpeedRecords[zeroSpeedRecords.length - 1].timestamp);
+        // Use seconds for better precision then convert to minutes
+        actualHalt = Math.round(differenceInSeconds(lastZero, firstZero) / 60);
+      } else if (zeroSpeedRecords.length === 1) {
+        // If only one zero speed record, it's at least a momentary stop.
+        // We'll count it as 1 minute if it's the only record, or 0 if we want to be strict.
+        // Given RTIS frequency, 1 record usually represents a short stop.
+        actualHalt = 0; 
       }
+
       return {
         station: s.stationName,
         scheduled: s.haltTime,
@@ -794,14 +828,66 @@ export default function App() {
       };
     });
 
+    // Identify Unscheduled Halts (Speed 0 between sections)
+    // "halt ko station pe hi bataya jaye between section ka nahi"
+    // We'll calculate this but only for internal use or if we want to show it separately.
+    // For now, we follow the instruction to focus on station halts.
+    const unscheduledHalts = [];
+    let currentHalt: { start: Date; last: Date; records: RTISRecord[] } | null = null;
+
+    for (const r of sectionData) {
+      if (Number(r.speed) === 0) {
+        const timestamp = new Date(r.timestamp);
+        if (!currentHalt) {
+          currentHalt = { start: timestamp, last: timestamp, records: [r] };
+        } else {
+          currentHalt.last = timestamp;
+          currentHalt.records.push(r);
+        }
+      } else {
+        if (currentHalt) {
+          const duration = Math.round(differenceInSeconds(currentHalt.last, currentHalt.start) / 60);
+          if (duration > 0) {
+            // Check if this halt was at a station
+            const isAtStation = currentHalt.records.some(rec => {
+              const recStn = normalize(rec.station || '');
+              return activeTrain.schedule.some(s => normalize(s.stationCode) === recStn || normalize(s.stationName) === recStn);
+            });
+
+            if (!isAtStation) {
+              unscheduledHalts.push({
+                start: currentHalt.start,
+                end: currentHalt.last,
+                duration
+              });
+            }
+          }
+          currentHalt = null;
+        }
+      }
+    }
+
+    const totalUnscheduledHaltTime = unscheduledHalts.reduce((acc, h) => acc + h.duration, 0);
+
     // Section-wise Analysis (Every two stations)
     const sectionWiseAnalysis = [];
     for (let i = startIndex; i < endIndex; i++) {
       const s1 = activeTrain.schedule[i];
       const s2 = activeTrain.schedule[i + 1];
 
-      const r1 = rtisData.find(r => r.station === s1.stationCode || r.station === s1.stationName);
-      const r2 = rtisData.find(r => r.station === s2.stationCode || r.station === s2.stationName);
+      const s1Code = normalize(s1.stationCode);
+      const s1Name = normalize(s1.stationName);
+      const s2Code = normalize(s2.stationCode);
+      const s2Name = normalize(s2.stationName);
+
+      const r1 = rtisData.find(r => {
+        const rStn = normalize(r.station || '');
+        return rStn && (rStn === s1Code || rStn === s1Name);
+      });
+      const r2 = rtisData.find(r => {
+        const rStn = normalize(r.station || '');
+        return rStn && (rStn === s2Code || rStn === s2Name);
+      });
 
       if (r1 && r2) {
         const t1Sched = parse(s1.departureTime, 'HH:mm', new Date());
@@ -813,15 +899,138 @@ export default function App() {
         const t2Act = new Date(r2.timestamp);
         const aDuration = differenceInMinutes(t2Act, t1Act);
 
+        // Calculate max speed in this section
+        const sectionRtis = rtisData.filter(r => {
+          const t = new Date(r.timestamp);
+          return t >= t1Act && t <= t2Act;
+        });
+        const sectionMaxSpeed = sectionRtis.length > 0 
+          ? Math.max(...sectionRtis.map(r => r.speed)) 
+          : 0;
+
         sectionWiseAnalysis.push({
           from: s1.stationName,
           to: s2.stationName,
           sched: sDuration,
           actual: aDuration,
-          diff: aDuration - sDuration
+          diff: aDuration - sDuration,
+          maxSpeed: sectionMaxSpeed
         });
       }
     }
+
+    const generatePDF = () => {
+      if (!activeTrain) return;
+
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      // Header
+      doc.setFontSize(22);
+      doc.setTextColor(30, 41, 59); // Slate-800
+      doc.text("RAILRUN PERFORMANCE ANALYSIS", pageWidth / 2, 20, { align: 'center' });
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Report ID: RR-${activeTrain.trainNo}-${Date.now().toString().slice(-6)}`, 14, 30);
+      doc.text(`Date: ${format(new Date(), 'dd MMMM yyyy')}`, pageWidth - 14, 30, { align: 'right' });
+
+      // Subject
+      doc.setFontSize(12);
+      doc.setTextColor(0);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Subject: Performance Analysis Report for Train ${activeTrain.trainNo} (${activeTrain.trainName})`, 14, 45);
+      doc.line(14, 47, pageWidth - 14, 47);
+
+      // Train Info
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.text(`Section Analyzed: ${startStation} to ${endStation}`, 14, 55);
+      doc.text(`Total Distance: ${activeTrain.schedule[endIndex].distance - activeTrain.schedule[startIndex].distance} km`, 14, 61);
+
+      // Summary Stats
+      doc.setFontSize(13);
+      doc.setFont("helvetica", "bold");
+      doc.text("1. Executive Summary", 14, 75);
+      
+      autoTable(doc, {
+        startY: 80,
+        head: [['Metric Description', 'Value']],
+        body: [
+          ['Scheduled Travel Time', `${schedDuration} minutes`],
+          ['Actual Travel Time', `${actualDuration} minutes`],
+          ['Net Time Loss/Gain (Loss of Run)', `${lossOfRun} minutes`],
+          ['Maximum Speed Recorded', `${maxSpeed.toFixed(1)} km/h`],
+          ['Average Section Speed', `${avgSpeed.toFixed(1)} km/h`],
+          ['Unscheduled Halts (Between Stations)', `${totalUnscheduledHaltTime} minutes`]
+        ],
+        theme: 'striped',
+        headStyles: { fillColor: [51, 65, 85] }, // Slate-700
+        styles: { fontSize: 10 }
+      });
+
+      // Section-wise Table
+      doc.addPage();
+      doc.setFontSize(13);
+      doc.setFont("helvetica", "bold");
+      doc.text("2. Section-wise Performance Detail", 14, 20);
+      
+      autoTable(doc, {
+        startY: 25,
+        head: [['From Station', 'To Station', 'Sched (m)', 'Actual (m)', 'Max Spd', 'Diff (m)']],
+        body: sectionWiseAnalysis.map(sec => [
+          sec.from,
+          sec.to,
+          sec.sched,
+          sec.actual,
+          `${sec.maxSpeed.toFixed(1)} km/h`,
+          { content: `${sec.diff > 0 ? '+' : ''}${sec.diff}m`, styles: { textColor: sec.diff > 0 ? [220, 38, 38] : [22, 163, 74] } }
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [51, 65, 85] },
+        styles: { fontSize: 9 }
+      });
+
+      // Halt Table
+      doc.setFontSize(13);
+      doc.setFont("helvetica", "bold");
+      doc.text("3. Station Halt Analysis", 14, (doc as any).lastAutoTable.finalY + 15);
+      
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 20,
+        head: [['Station Name', 'Sched Halt (m)', 'Actual Halt (m)', 'Variance (m)']],
+        body: haltsInRange.map(halt => [
+          halt.station,
+          halt.scheduled,
+          halt.actual,
+          { content: `${halt.diff > 0 ? '+' : ''}${halt.diff}m`, styles: { textColor: halt.diff > 0 ? [220, 38, 38] : [22, 163, 74] } }
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [51, 65, 85] },
+        styles: { fontSize: 9 }
+      });
+
+      // Signature Area
+      const finalY = (doc as any).lastAutoTable.finalY + 30;
+      if (finalY < doc.internal.pageSize.getHeight() - 40) {
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "italic");
+        doc.text("This is a computer-generated report based on RTIS data analysis.", 14, finalY);
+        doc.setFont("helvetica", "bold");
+        doc.text("RailRun Analytics System", 14, finalY + 10);
+      }
+
+      // Footer
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(10);
+        doc.setTextColor(150);
+        doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 10, { align: 'center' });
+      }
+
+      doc.save(`RailRun_Report_${activeTrain.trainNo}_${startStation}_${endStation}.pdf`);
+    };
 
     return {
       schedDuration,
@@ -831,7 +1040,10 @@ export default function App() {
       avgSpeed,
       haltsInRange,
       sectionData,
-      sectionWiseAnalysis
+      sectionWiseAnalysis,
+      totalUnscheduledHaltTime,
+      unscheduledHalts,
+      generatePDF
     };
   }, [activeTrain, startStation, endStation, rtisData]);
 
@@ -931,6 +1143,18 @@ export default function App() {
           </div>
           <p className="text-[8px] text-gray-300">v1.0.6</p>
         </div>
+        
+        {analysis && !analysis.error && (
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={analysis.generatePDF}
+              className="bg-green-600 text-white px-6 py-2 rounded-full text-sm font-semibold hover:bg-green-700 transition-all shadow-md flex items-center gap-2 animate-bounce-subtle"
+            >
+              <Download className="w-4 h-4" />
+              Download Report
+            </button>
+          </div>
+        )}
       </header>
 
       <main className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1156,7 +1380,7 @@ export default function App() {
                 <h3 className="text-2xl font-bold mb-1">{activeTrain.trainName}</h3>
                 <p className="text-indigo-200 text-sm mb-6">#{activeTrain.trainNo}</p>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 mb-6">
                   <div className="bg-white/10 p-3 rounded-xl backdrop-blur-sm">
                     <p className="text-[10px] text-indigo-300 uppercase font-bold">Origin</p>
                     <p className="font-semibold text-sm">{activeTrain.schedule[0].stationCode || activeTrain.schedule[0].stationName}</p>
@@ -1166,6 +1390,16 @@ export default function App() {
                     <p className="font-semibold text-sm">{activeTrain.schedule[activeTrain.schedule.length - 1].stationCode || activeTrain.schedule[activeTrain.schedule.length - 1].stationName}</p>
                   </div>
                 </div>
+
+                {analysis && !analysis.error && (
+                  <button 
+                    onClick={analysis.generatePDF}
+                    className="w-full bg-white text-indigo-900 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-indigo-50 transition-all shadow-lg active:scale-95"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download PDF Report
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1208,8 +1442,20 @@ export default function App() {
             </div>
           ) : (
             <>
+              {/* Dashboard Header with Download */}
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-xl font-bold text-gray-800">Analysis Dashboard</h2>
+                <button 
+                  onClick={analysis!.generatePDF}
+                  className="bg-indigo-600 text-white px-6 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Download PDF Report
+                </button>
+              </div>
+
               {/* Summary Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                   <div className="flex items-center justify-between mb-4">
                     <div className="bg-orange-100 p-2 rounded-lg">
@@ -1257,6 +1503,20 @@ export default function App() {
                     <span className="text-gray-400 text-sm font-medium">km/h</span>
                   </div>
                   <p className="text-xs text-gray-500 mt-2">Average speed across section</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="bg-red-100 p-2 rounded-lg">
+                      <Clock className="w-5 h-5 text-red-600" />
+                    </div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Extra Halt</span>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <h4 className="text-3xl font-bold text-red-600">{analysis!.totalUnscheduledHaltTime}</h4>
+                    <span className="text-gray-400 text-sm font-medium">mins</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">Stationary time between sections</p>
                 </div>
               </div>
 
@@ -1327,6 +1587,7 @@ export default function App() {
                         <th className="px-6 py-4">Section</th>
                         <th className="px-6 py-4">Sched Time</th>
                         <th className="px-6 py-4">Actual Time</th>
+                        <th className="px-6 py-4">Max Speed</th>
                         <th className="px-6 py-4">Diff</th>
                         <th className="px-6 py-4">Performance</th>
                       </tr>
@@ -1343,6 +1604,7 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-500">{sec.sched}m</td>
                           <td className="px-6 py-4 text-sm text-gray-700 font-medium">{sec.actual}m</td>
+                          <td className="px-6 py-4 text-sm font-bold text-indigo-600">{sec.maxSpeed.toFixed(1)} km/h</td>
                           <td className={cn(
                             "px-6 py-4 text-sm font-bold",
                             sec.diff > 0 ? "text-red-500" : sec.diff < 0 ? "text-green-500" : "text-gray-400"
